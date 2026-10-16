@@ -64,6 +64,7 @@ Errors come in a stable order: missing and unknown fields first, then value erro
 | Annotation | Behavior |
 |---|---|
 | `int`, `str`, `float`, `bool`, any class | `isinstance` check, no type coercion. `bool` is rejected for `int` fields |
+| `float` | Also accepts an `int` that `float` represents exactly and converts it, since JSON sends `1` for `1.0` |
 | `Any` | Value is accepted as is |
 | `list[T]` | Each item is checked against `T`; the item index is added to the error path |
 | `tuple[T, ...]`, `tuple[T1, T2]` | Accepts a tuple or a list and stores a tuple, since JSON has no tuples. A fixed tuple requires the exact length |

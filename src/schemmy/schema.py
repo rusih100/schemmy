@@ -308,6 +308,9 @@ class Schema:
         if issubclass(expected_type, Schema):
             return cls._resolve_schema_type(field, value, expected_type)
 
+        if expected_type is float and type(value) is int:
+            return cls._resolve_int_as_float(field, value)
+
         # bool is a subclass of int but is rejected for int fields.
         if not isinstance(value, expected_type) or (expected_type is int and isinstance(value, bool)):
             return cls._resolve_scalar_type(field, value, expected_type)
@@ -327,6 +330,35 @@ class Schema:
         """
 
         return value, []
+
+    @classmethod
+    def _resolve_int_as_float(
+        cls, field: FieldName, value: int
+    ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
+        """
+        Resolver for an int passed to a float field.
+        JSON numbers without a fractional part arrive as int.
+        The int is converted only when float represents it exactly.
+        bool is not converted.
+
+        :returns: Normalized value, validation errors
+        """
+
+        try:
+            converted = float(value)
+        except OverflowError:
+            converted = None
+
+        if converted is None or converted != value:
+            return ..., [
+                FieldValidationError(
+                    field=field,
+                    message=f"Expected float, got int {value} that float cannot represent exactly",
+                    location=[field],
+                )
+            ]
+
+        return converted, []
 
     @classmethod
     def _resolve_union_type(
