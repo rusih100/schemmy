@@ -1,6 +1,6 @@
 # schemmy
 
-Data validation and normalization driven by type annotations. Zero dependencies, one base class, no magic.
+Validate data with plain type annotations. No dependencies.
 
 ```bash
 pip install schemmy
