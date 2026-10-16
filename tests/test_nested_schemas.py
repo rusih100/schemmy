@@ -1,16 +1,16 @@
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestNestedSchemas:
     """
-    Группа тестов на вложенные структуры (Schema в Schema, списки Schema).
+    Nested schemas and lists of schemas.
     """
 
     def test_success_nested_schema(self) -> None:
         """
-        Успешная валидация вложенной схемы.
+        A nested schema passes.
         """
 
         class Address(Schema):
@@ -21,18 +21,15 @@ class TestNestedSchemas:
             id: int
             address: Address
 
-        user = User(
-            id=1,
-            address={"city": "Moscow", "zip_code": 101000}
-        )
+        user = User(id=1, address={"city": "Moscow", "zip_code": 101000})
 
-        assert isinstance(user.address, Address), "address должен быть экземпляром Address"
+        assert isinstance(user.address, Address), "address must be an Address instance"
         assert user.address.city == "Moscow"
         assert user.address.zip_code == 101000
 
     def test_invalid_type_in_nested_schema(self) -> None:
         """
-        Ошибка при некорректном типе во вложенной схеме.
+        A wrong type inside a nested schema fails.
         """
 
         class Address(Schema):
@@ -47,12 +44,12 @@ class TestNestedSchemas:
             User(id=1, address={"city": "Moscow", "zip_code": "bad"})
 
         error = exc.value.exceptions[0]
-        assert "Ожидалось int" in error.message
+        assert "Expected int" in error.message
         assert error.location == ["address", "zip_code"]
 
     def test_list_of_nested_schemas_success(self) -> None:
         """
-        Успешная валидация списка вложенных схем.
+        A list of nested schemas passes.
         """
 
         class Item(Schema):
@@ -75,7 +72,7 @@ class TestNestedSchemas:
 
     def test_list_of_nested_schemas_with_errors(self) -> None:
         """
-        Ошибка валидации при неправильных данных в списке вложенных схем.
+        Invalid data in a list of nested schemas fails.
         """
 
         class Item(Schema):
@@ -96,13 +93,13 @@ class TestNestedSchemas:
         errors = exc.value.exceptions
         assert len(errors) == 2
         assert errors[0].location == ["items", 0, "qty"]
-        assert "Ожидалось int" in errors[0].message
+        assert "Expected int" in errors[0].message
         assert errors[1].location == ["items", 1, "sku"]
-        assert "Ожидалось str" in errors[1].message
+        assert "Expected str" in errors[1].message
 
     def test_invalid_list_type(self) -> None:
         """
-        Ошибка, если поле объявлено как список, но пришёл не список.
+        A non-list value for a list field fails.
         """
 
         class Item(Schema):
@@ -115,5 +112,5 @@ class TestNestedSchemas:
             Order(items="not-a-list")
 
         error = exc.value.exceptions[0]
-        assert "Ожидался список" in error.message
+        assert "Expected list[" in error.message
         assert error.location == ["items"]

@@ -2,12 +2,12 @@ from typing import Any
 
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestDisallowedFields:
     """
-    Группа тестов на проверку неразрешенных полей
+    Unknown fields.
     """
 
     @pytest.mark.parametrize(
@@ -29,4 +29,4 @@ class TestDisallowedFields:
         assert len(exc.value.exceptions) == expected_error_count, "Check errors count"
 
         for error in exc.value.exceptions:
-            assert "Поле не предусмотрено схемой" in error.message, "Check error message"
+            assert "Unknown field" in error.message, "Check error message"
