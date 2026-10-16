@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from copy import deepcopy
 from types import NoneType, UnionType
 from typing import (
@@ -27,6 +28,14 @@ type FieldValue = Any
 
 type FieldsMapping = dict[FieldName, FieldValue]
 type TypeHintsMapping = dict[FieldName, Any]
+
+# Bare typing aliases carry no type arguments.
+# Annotations are compared by identity, because Annotated metadata may be unhashable.
+_BARE_ALIASES: tuple[tuple[Any, Any], ...] = (
+    (typing.List, list[Any]),  # noqa: UP006
+    (typing.Dict, dict[Any, Any]),  # noqa: UP006
+    (typing.Tuple, tuple[Any, ...]),  # noqa: UP006
+)
 
 
 def _type_repr(annotation: Any) -> str:
@@ -101,9 +110,10 @@ class Schema:
         dict: "_resolve_dict_type",
     }
 
-    def __init__(self, **fields: FieldValue) -> None:
+    def __init__(self, /, **fields: FieldValue) -> None:
         """
         Validates the fields and sets them as instance attributes.
+        self is positional-only, so an input field named self is reported as a field error.
 
         :raise ValidationError: Schema validation failed.
         """
@@ -141,9 +151,22 @@ class Schema:
     def validate(cls, fields: FieldsMapping) -> Self:
         """
         Validates a mapping and returns a schema instance.
+        Input other than a dict produces a single error with an empty location.
 
         :raise ValidationError: Schema validation failed.
         """
+
+        if not isinstance(fields, dict):
+            raise ValidationError(
+                f"{cls.__name__}: validation failed",
+                [
+                    FieldValidationError(
+                        field="",
+                        message=f"Expected dict, got {type(fields).__name__}",
+                        location=[],
+                    )
+                ],
+            )
 
         non_str_keys = [key for key in fields if not isinstance(key, str)]
         if non_str_keys:
@@ -288,10 +311,16 @@ class Schema:
         """
         Dispatches a value to the resolver for its annotation.
         Supported annotations are Any, Annotated, unions, Literal, list, tuple, dict, Schema subclasses and plain classes.
+        Bare typing.List, typing.Dict and typing.Tuple are checked as list[Any], dict[Any, Any] and tuple[Any, ...].
         A value that fails validation is replaced with ellipsis.
 
         :returns: Normalized value, validation errors
         """
+
+        for alias, parametrized in _BARE_ALIASES:
+            if expected_type is alias:
+                expected_type = parametrized
+                break
 
         origin = get_origin(expected_type)
 

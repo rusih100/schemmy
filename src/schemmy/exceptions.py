@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import cast
+from functools import partial
+from typing import Any, cast
 
 
 class FieldValidationError(Exception):
@@ -9,9 +10,18 @@ class FieldValidationError(Exception):
     """
 
     def __init__(self, *, field: str, message: str, location: list[str | int]) -> None:
+        super().__init__(message)
         self.field: str = field
         self.message: str = message
         self.location: list[str | int] = location
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """
+        Rebuilds the error from its keyword arguments.
+        Required for pickle and copy, because the constructor is keyword-only.
+        """
+
+        return partial(type(self), field=self.field, message=self.message, location=self.location), ()
 
     def __str__(self) -> str:
         return f"({self.field}: {self.message}. {self.location})"

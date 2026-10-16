@@ -172,6 +172,60 @@ class TestNonStringKeys:
         assert exc.value.exceptions[0].location == ["inner", "1"]
 
 
+class TestNonDictInput:
+    """
+    Input other than a dict.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "type_name"),
+        [(None, "NoneType"), ([("a", 1)], "list"), ("a", "str"), (1, "int")],
+    )
+    def test_validate_non_dict(self, value: object, type_name: str) -> None:
+        """
+        Input other than a dict fails with a single error and an empty location.
+        """
+
+        class S(Schema):
+            a: int
+
+        with pytest.raises(ValidationError) as exc:
+            S.validate(value)
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [
+            ([], f"Expected dict, got {type_name}")
+        ]
+
+
+class TestSelfField:
+    """
+    Field named self.
+    """
+
+    def test_unknown_self_field(self) -> None:
+        """
+        An undeclared self key in the input is reported as an unknown field.
+        """
+
+        class S(Schema):
+            a: int
+
+        with pytest.raises(ValidationError) as exc:
+            S.validate({"a": 1, "self": 2})
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [(["self"], "Unknown field")]
+
+    def test_declared_self_field(self) -> None:
+        """
+        A declared self field is validated like any other field.
+        """
+
+        class S(Schema):
+            self: int
+
+        assert S.validate({"self": 1}).self == 1
+
+
 class TestMisc:
     """
     Other cases.

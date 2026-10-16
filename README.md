@@ -57,7 +57,7 @@ except ValidationError as exc:
 
 Errors come in a stable order: missing and unknown fields first, then value errors in field declaration order.
 
-`ValidationError` is an `ExceptionGroup`, so `except*` works too.
+`ValidationError` is an `ExceptionGroup` of `FieldValidationError`, so `except* FieldValidationError` works too. Both errors can be pickled and copied.
 
 ## What is supported
 
@@ -76,11 +76,13 @@ Errors come in a stable order: missing and unknown fields first, then value erro
 
 A validator is a callable that takes a value and returns it, possibly changed. To report an error, a validator raises an exception. The returned value is stored in the schema, so validators can normalize data, for example bring a phone number to a single format.
 
-Unknown fields and missing required fields are validation errors as well.
+Unknown fields and missing required fields are validation errors as well. Input to `Schema.validate` that is not a dict produces a single error with an empty location.
 
 A field with a default value is optional. If the field is not passed, the schema gets a copy of the default. The default value itself is not validated.
 
 `ClassVar` annotations are not fields.
+
+Bare `typing.List`, `typing.Dict` and `typing.Tuple` are treated as `list[Any]`, `dict[Any, Any]` and `tuple[Any, ...]`.
 
 ## Working with instances
 
