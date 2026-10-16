@@ -7,6 +7,7 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
+    Literal,
     Union,
     dataclass_transform,
     get_args,
@@ -38,6 +39,9 @@ def _type_repr(annotation: Any) -> str:
     if annotation is NoneType:
         return "None"
 
+    if annotation is Ellipsis:
+        return "..."
+
     origin = get_origin(annotation)
     args = get_args(annotation)
 
@@ -59,7 +63,7 @@ def _type_repr(annotation: Any) -> str:
 def _dump(value: Any) -> Any:
     """
     Converts schemas inside a value to dicts.
-    Lists and dicts are traversed recursively.
+    Lists, tuples and dicts are traversed recursively.
     Other values are returned unchanged.
     """
 
@@ -68,6 +72,9 @@ def _dump(value: Any) -> Any:
 
     if isinstance(value, list):
         return [_dump(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_dump(item) for item in value)
 
     if isinstance(value, dict):
         return {key: _dump(item) for key, item in value.items()}
@@ -84,6 +91,15 @@ class Schema:
     """
 
     _schemmy_fields: ClassVar[tuple[TypeHintsMapping, FieldsMapping]]
+    _origin_resolvers: ClassVar[dict[Any, str]] = {
+        Annotated: "_resolve_validators",
+        Union: "_resolve_union_type",
+        UnionType: "_resolve_union_type",
+        Literal: "_resolve_literal_type",
+        list: "_resolve_list_type",
+        tuple: "_resolve_tuple_type",
+        dict: "_resolve_dict_type",
+    }
 
     def __init__(self, **fields: FieldValue) -> None:
         """
@@ -115,7 +131,7 @@ class Schema:
         """
         Returns field values as a dict in field declaration order.
         Nested schemas are converted to dicts.
-        Lists and dicts are traversed recursively.
+        Lists, tuples and dicts are traversed recursively.
         """
 
         type_hints, _ = type(self)._get_fields()
@@ -271,7 +287,7 @@ class Schema:
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
         """
         Dispatches a value to the resolver for its annotation.
-        Supported annotations are Any, Annotated, unions, list, Schema subclasses and plain classes.
+        Supported annotations are Any, Annotated, unions, Literal, list, tuple, dict, Schema subclasses and plain classes.
         A value that fails validation is replaced with ellipsis.
 
         :returns: Normalized value, validation errors
@@ -282,14 +298,9 @@ class Schema:
         if expected_type is Any:
             return cls._resolve_any_type(field, value, expected_type)
 
-        if origin is Annotated:
-            return cls._resolve_validators(field, value, expected_type)
-
-        if origin is Union or origin is UnionType:
-            return cls._resolve_union_type(field, value, expected_type)
-
-        if origin is list:
-            return cls._resolve_list_type(field, value, expected_type)
+        resolver_name = cls._origin_resolvers.get(origin)
+        if resolver_name is not None:
+            return getattr(cls, resolver_name)(field, value, expected_type)
 
         if origin is not None or not isinstance(expected_type, type):
             return cls._resolve_unsupported_type(field, value, expected_type)
@@ -349,6 +360,30 @@ class Schema:
         ]
 
     @classmethod
+    def _resolve_literal_type(
+        cls, field: FieldName, value: FieldValue, expected_type: Any
+    ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
+        """
+        Resolver for Literal[...].
+        The value must equal one of the literals and have the same type.
+        The type check keeps True from matching Literal[1].
+
+        :returns: Normalized value, validation errors
+        """
+
+        for literal in get_args(expected_type):
+            if type(value) is type(literal) and value == literal:
+                return value, []
+
+        return ..., [
+            FieldValidationError(
+                field=field,
+                message=f"Expected {_type_repr(expected_type)}, got {value!r}",
+                location=[field],
+            )
+        ]
+
+    @classmethod
     def _resolve_list_type(
         cls, field: FieldName, value: FieldValue, expected_type: Any
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
@@ -356,43 +391,127 @@ class Schema:
         Resolver for list[T].
         The value must be a list.
         Each item is validated against T.
-        The item index is added to the location of item errors.
 
         :returns: Normalized value, validation errors
         """
 
-        item_type = get_args(expected_type)[0]
-
         if not isinstance(value, list):
+            return cls._resolve_scalar_type(field, value, expected_type)
+
+        item_type = get_args(expected_type)[0]
+        return cls._validate_items(field, value, [item_type] * len(value))
+
+    @classmethod
+    def _resolve_tuple_type(
+        cls, field: FieldName, value: FieldValue, expected_type: Any
+    ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
+        """
+        Resolver for tuple[T, ...] and tuple[T1, T2, ...].
+        The value must be a tuple or a list.
+        A list is converted to a tuple, because JSON has no tuples.
+        tuple[T, ...] validates each item against T.
+        tuple[T1, T2, ...] requires the exact number of items.
+
+        :returns: Normalized value, validation errors
+        """
+
+        if not isinstance(value, tuple | list):
+            return cls._resolve_scalar_type(field, value, expected_type)
+
+        args = get_args(expected_type)
+
+        if len(args) == 2 and args[1] is Ellipsis:
+            item_types = [args[0]] * len(value)
+        elif len(args) == len(value):
+            item_types = list(args)
+        else:
             return ..., [
                 FieldValidationError(
                     field=field,
-                    message=f"Expected {_type_repr(expected_type)}, got {type(value).__name__}",
+                    message=f"Expected {_type_repr(expected_type)} with {len(args)} items, got {len(value)}",
                     location=[field],
                 )
             ]
 
-        validated_list: list[Any] = []
+        validated_items, errors = cls._validate_items(field, value, item_types)
+        if errors:
+            return ..., errors
+
+        return tuple(validated_items), []
+
+    @classmethod
+    def _resolve_dict_type(
+        cls, field: FieldName, value: FieldValue, expected_type: Any
+    ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
+        """
+        Resolver for dict[K, V].
+        The value must be a dict.
+        Each key is validated against K and each value against V.
+        The key is added to the location of key and value errors.
+        Key error messages start with "Invalid key".
+
+        :returns: Normalized value, validation errors
+        """
+
+        if not isinstance(value, dict):
+            return cls._resolve_scalar_type(field, value, expected_type)
+
+        key_type, value_type = get_args(expected_type)
+        validated_dict: dict[Any, Any] = {}
         errors: list[FieldValidationError] = []
 
-        for index, item in enumerate(value):
-            validated_item, item_errors = cls._check_field_type(field, item, item_type)
-            if item_errors:
-                for error in item_errors:
-                    error.location.insert(1, index)
-                errors.extend(item_errors)
-                validated_list.append(...)
-            else:
-                validated_list.append(validated_item)
+        for key, item in value.items():
+            location_key = key if isinstance(key, str | int) else repr(key)
 
-        return validated_list, errors
+            validated_key, key_errors = cls._check_field_type(field, key, key_type)
+            for error in key_errors:
+                error.message = f"Invalid key: {error.message}"
+                error.location.insert(1, location_key)
+            errors.extend(key_errors)
+
+            validated_item, item_errors = cls._check_field_type(field, item, value_type)
+            for error in item_errors:
+                error.location.insert(1, location_key)
+            errors.extend(item_errors)
+
+            if not key_errors and not item_errors:
+                validated_dict[validated_key] = validated_item
+
+        if errors:
+            return ..., errors
+
+        return validated_dict, []
+
+    @classmethod
+    def _validate_items(
+        cls, field: FieldName, items: list[Any] | tuple[Any, ...], item_types: list[Any]
+    ) -> tuple[list[Any], list[FieldValidationError]]:
+        """
+        Validates items of a sequence against their types.
+        The item index is added to the location of item errors.
+        A failed item is replaced with ellipsis.
+
+        :returns: Normalized items, validation errors
+        """
+
+        validated_items: list[Any] = []
+        errors: list[FieldValidationError] = []
+
+        for index, (item, item_type) in enumerate(zip(items, item_types, strict=True)):
+            validated_item, item_errors = cls._check_field_type(field, item, item_type)
+            for error in item_errors:
+                error.location.insert(1, index)
+            errors.extend(item_errors)
+            validated_items.append(... if item_errors else validated_item)
+
+        return validated_items, errors
 
     @classmethod
     def _resolve_unsupported_type(
         cls, field: FieldName, value: FieldValue, expected_type: Any
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
         """
-        Resolver for annotations without support, such as dict and tuple.
+        Resolver for annotations without support, such as set and TypedDict.
         Always produces a single error.
 
         :returns: Normalized value, validation errors
@@ -457,7 +576,7 @@ class Schema:
         return ..., [
             FieldValidationError(
                 field=field,
-                message=f"Expected {expected_type.__name__}, got {type(value).__name__}",
+                message=f"Expected {_type_repr(expected_type)}, got {type(value).__name__}",
                 location=[field],
             )
         ]

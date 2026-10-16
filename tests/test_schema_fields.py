@@ -1,4 +1,4 @@
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, ClassVar
 
 import pytest
 
@@ -229,10 +229,10 @@ class TestMisc:
         """
 
         class S(Schema):
-            x: dict[str, int]
+            x: set[int]
 
         with pytest.raises(ValidationError) as exc:
-            S(x={"a": 1})
+            S(x={1})
 
         assert exc.value.exceptions[0].message.startswith("Unsupported type")
 
@@ -242,12 +242,12 @@ class TestMisc:
         """
 
         class S(Schema):
-            x: Literal["a"]
+            x: frozenset[int | None]
 
         with pytest.raises(ValidationError) as exc:
-            S(x="a")
+            S(x=frozenset())
 
-        assert exc.value.exceptions[0].message == "Unsupported type: Literal['a']"
+        assert exc.value.exceptions[0].message == "Unsupported type: frozenset[int | None]"
 
     def test_fields_cached_per_class(self) -> None:
         """

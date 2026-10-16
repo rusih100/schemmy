@@ -66,6 +66,9 @@ Errors come in a stable order: missing and unknown fields first, then value erro
 | `int`, `str`, `float`, `bool`, any class | `isinstance` check, no type coercion. `bool` is rejected for `int` fields |
 | `Any` | Value is accepted as is |
 | `list[T]` | Each item is checked against `T`; the item index is added to the error path |
+| `tuple[T, ...]`, `tuple[T1, T2]` | Accepts a tuple or a list and stores a tuple, since JSON has no tuples. A fixed tuple requires the exact length |
+| `dict[K, V]` | Each key is checked against `K` and each value against `V`; the key is added to the error path |
+| `Literal[...]` | The value must equal one of the literals and have the same type, so `True` does not match `Literal[1]` |
 | `X \| Y`, `Optional[X]` | Members are tried in order, the first match wins. For `X \| None`, errors of `X` are reported as is |
 | `Schema` subclass | Accepts a schema instance or a `dict` |
 | `Annotated[T, *validators]` | `T` is checked first, then validators run in order |
@@ -106,7 +109,7 @@ The constructor is typed for already typed values. Use `Schema.validate` for raw
 
 ## Limitations
 
-`dict`, `tuple`, `Literal` and other annotations not listed above are not supported yet. A field with such an annotation produces an "unsupported type" error.
+`set`, `frozenset`, `TypedDict` and other annotations not listed above are not supported yet. A field with such an annotation produces an "unsupported type" error.
 
 ## Development
 
