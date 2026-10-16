@@ -24,6 +24,8 @@ class FieldValidationError(Exception):
         return partial(type(self), field=self.field, message=self.message, location=self.location), ()
 
     def __str__(self) -> str:
+        if not self.field:
+            return f"({self.message}. {self.location})"
         return f"({self.field}: {self.message}. {self.location})"
 
 

@@ -207,3 +207,71 @@ class TestUnion:
             item: Wide | Narrow
 
         assert type(S(item={"sku": "A1"}).item) is Wide
+
+
+class TestUnionErrors:
+    """
+    Errors of a union that no member matches.
+    """
+
+    def test_validator_error_of_matching_member(self) -> None:
+        """
+        A validator error is reported when only its member accepts the value type.
+        """
+
+        class S(Schema):
+            field: Annotated[int, positive] | str
+
+        with pytest.raises(ValidationError) as exc:
+            S(field=-1)
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [
+            (["field"], "Validator positive failed: must be > 0")
+        ]
+
+    def test_item_error_of_matching_member(self) -> None:
+        """
+        An item error is reported when only its member accepts the container.
+        """
+
+        class S(Schema):
+            field: list[int] | str
+
+        with pytest.raises(ValidationError) as exc:
+            S(field=[1, "a"])
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [
+            (["field", 1], "Expected int, got str")
+        ]
+
+    def test_no_member_matches_type(self) -> None:
+        """
+        A value of another type produces a single error that lists the members.
+        """
+
+        class S(Schema):
+            field: Annotated[int, positive] | str
+
+        with pytest.raises(ValidationError) as exc:
+            S(field=1.5)
+
+        assert [error.message for error in exc.value.exceptions] == ["Expected int | str, got float"]
+
+    def test_several_members_match_type(self) -> None:
+        """
+        A dict rejected by several schema members produces a single error that lists the members.
+        """
+
+        class A(Schema):
+            a: int
+
+        class B(Schema):
+            b: int
+
+        class S(Schema):
+            item: A | B
+
+        with pytest.raises(ValidationError) as exc:
+            S(item={"c": 1})
+
+        assert [error.message for error in exc.value.exceptions] == ["Expected A | B, got dict"]

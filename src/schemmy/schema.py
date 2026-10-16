@@ -152,6 +152,7 @@ class Schema:
         """
         Validates a mapping and returns a schema instance.
         Input other than a dict produces a single error with an empty location.
+        Nesting that exceeds the recursion limit produces a single error at the location where it was reached.
 
         :raise ValidationError: Schema validation failed.
         """
@@ -182,13 +183,21 @@ class Schema:
                 ],
             )
 
-        return cls(**fields)
+        try:
+            return cls(**fields)
+        except RecursionError:
+            # Close to the limit this handler can overflow again; the next nested validate up the stack catches it.
+            raise ValidationError(
+                f"{cls.__name__}: validation failed",
+                [FieldValidationError(field="", message="Maximum nesting depth exceeded", location=[])],
+            ) from None
 
     @classmethod
     def _get_fields(cls) -> tuple[TypeHintsMapping, FieldsMapping]:
         """
         Returns field annotations and field default values.
         ClassVar annotations are not fields.
+        Annotations and defaults are collected from all bases, including classes that are not schemas.
         The result is cached on the schema class.
 
         :returns: Field annotations, default values
@@ -206,7 +215,7 @@ class Schema:
 
         defaults: FieldsMapping = {}
         for klass in reversed(cls.__mro__):
-            if klass is Schema or not issubclass(klass, Schema):
+            if klass is Schema or klass is object:
                 continue
             for name in type_hints:
                 if name in klass.__dict__:
@@ -398,6 +407,8 @@ class Schema:
         None members are skipped for a value other than None.
         A single remaining member validates the value directly and reports its own errors.
         Otherwise members are tried in declaration order and the first match wins.
+        When exactly one failed member accepted the value type, its errors are reported.
+        Otherwise a single error lists the union members.
 
         :returns: Normalized value, validation errors
         """
@@ -407,10 +418,16 @@ class Schema:
         if len(members) == 1:
             return cls._check_field_type(field, value, members[0])
 
+        type_matched: list[list[FieldValidationError]] = []
         for member in members:
             validated_value, errors = cls._check_field_type(field, value, member)
             if not errors:
                 return validated_value, []
+            if cls._member_type_matched(field, value, member, errors):
+                type_matched.append(errors)
+
+        if len(type_matched) == 1:
+            return ..., type_matched[0]
 
         return ..., [
             FieldValidationError(
@@ -419,6 +436,27 @@ class Schema:
                 location=[field],
             )
         ]
+
+    @classmethod
+    def _member_type_matched(
+        cls, field: FieldName, value: FieldValue, member: Any, errors: list[FieldValidationError]
+    ) -> bool:
+        """
+        Tells whether a failed union member accepted the value type.
+        An error below the field location means the member accepted the value and rejected its contents.
+        An Annotated member accepted the value when its base type passes and only its validators failed.
+
+        :returns: Whether the member accepted the value type
+        """
+
+        if any(len(error.location) > 1 for error in errors):
+            return True
+
+        if get_origin(member) is Annotated:
+            _, base_errors = cls._check_field_type(field, value, get_args(member)[0])
+            return not base_errors
+
+        return False
 
     @classmethod
     def _resolve_literal_type(
@@ -650,6 +688,7 @@ class Schema:
         Resolver for Annotated[T, *validators].
         The value is checked against T first.
         Validators run in order, each receives the result of the previous one.
+        The first failing validator stops the chain and produces the only error.
 
         :returns: Normalized value, validation errors
         """
@@ -660,21 +699,17 @@ class Schema:
         if errors:
             return ..., errors
 
-        validator_errors: list[FieldValidationError] = []
         for validator in validators:
             try:
                 value = validator(value)
             except Exception as exc:
                 validator_name = getattr(validator, "__name__", type(validator).__name__)
-                validator_errors.append(
+                return ..., [
                     FieldValidationError(
                         field=field,
                         message=f"Validator {validator_name} failed: {exc}",
                         location=[field],
                     )
-                )
-
-        if validator_errors:
-            return ..., validator_errors
+                ]
 
         return value, []

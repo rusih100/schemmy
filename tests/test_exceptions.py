@@ -54,6 +54,16 @@ class TestFieldValidationError:
         assert type(cloned) is FieldValidationError
         assert (cloned.field, cloned.message, cloned.location) == (error.field, error.message, error.location)
 
+    def test_str_without_field(self) -> None:
+        """
+        An error without a field name omits it from the string.
+        """
+
+        with pytest.raises(ValidationError) as exc:
+            Item.validate(None)
+
+        assert str(exc.value.exceptions[0]) == "(Expected dict, got NoneType. [])"
+
 
 class TestValidationError:
     """

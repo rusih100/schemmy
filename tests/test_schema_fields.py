@@ -1,3 +1,4 @@
+import sys
 from typing import Annotated, ClassVar
 
 import pytest
@@ -319,3 +320,64 @@ class TestMisc:
         assert Child(a=1, b=2).b == 2
         with pytest.raises(ValidationError):
             Base(a=1, b=2)
+
+
+class TestMixins:
+    """
+    Bases that are not schemas.
+    """
+
+    def test_mixin_field_with_default(self) -> None:
+        """
+        A field declared in a mixin keeps its default value.
+        """
+
+        class Timestamped:
+            created: int = 0
+
+        class S(Timestamped, Schema):
+            name: str
+
+        assert S(name="a").to_dict() == {"created": 0, "name": "a"}
+
+
+class Node(Schema):
+    child: "Node | None" = None
+
+
+def nested(depth: int) -> dict[str, object]:
+    """
+    Returns Node input with the given number of nested children.
+    """
+
+    data: dict[str, object] = {"child": None}
+    for _ in range(depth):
+        data = {"child": data}
+    return data
+
+
+class TestNestingDepth:
+    """
+    Recursive schemas with deep input.
+    """
+
+    def test_too_deep_input(self) -> None:
+        """
+        Input deeper than the recursion limit allows produces a single depth error.
+        """
+
+        with pytest.raises(ValidationError) as exc:
+            Node.validate(nested(sys.getrecursionlimit()))
+
+        (error,) = exc.value.exceptions
+        assert error.message == "Maximum nesting depth exceeded"
+        assert set(error.location) == {"child"}
+
+    def test_deep_input_within_limit(self) -> None:
+        """
+        Input well within the recursion limit is validated.
+        """
+
+        data = nested(20)
+
+        assert Node.validate(data).to_dict() == data

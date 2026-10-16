@@ -70,13 +70,13 @@ Errors come in a stable order: missing and unknown fields first, then value erro
 | `tuple[T, ...]`, `tuple[T1, T2]` | Accepts a tuple or a list and stores a tuple, since JSON has no tuples. A fixed tuple requires the exact length |
 | `dict[K, V]` | Each key is checked against `K` and each value against `V`; the key is added to the error path |
 | `Literal[...]` | The value must equal one of the literals and have the same type, so `True` does not match `Literal[1]` |
-| `X \| Y`, `Optional[X]` | Members are tried in order, the first match wins. For `X \| None`, errors of `X` are reported as is |
+| `X \| Y`, `Optional[X]` | Members are tried in order, the first match wins. For `X \| None`, errors of `X` are reported as is. When only one member accepts the value type, its errors are reported |
 | `Schema` subclass | Accepts a schema instance or a `dict` |
 | `Annotated[T, *validators]` | `T` is checked first, then validators run in order |
 
-A validator is a callable that takes a value and returns it, possibly changed. To report an error, a validator raises an exception. The returned value is stored in the schema, so validators can normalize data, for example bring a phone number to a single format.
+A validator is a callable that takes a value and returns it, possibly changed. To report an error, a validator raises an exception. The first failing validator stops the chain. The returned value is stored in the schema, so validators can normalize data, for example bring a phone number to a single format.
 
-Unknown fields and missing required fields are validation errors as well. Input to `Schema.validate` that is not a dict produces a single error with an empty location.
+Unknown fields and missing required fields are validation errors as well. Input to `Schema.validate` that is not a dict produces a single error with an empty location. Input to a recursive schema nested deeper than the Python recursion limit allows produces a single `Maximum nesting depth exceeded` error.
 
 A field with a default value is optional. If the field is not passed, the schema gets a copy of the default. The default value itself is not validated.
 
