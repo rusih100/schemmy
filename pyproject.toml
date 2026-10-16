@@ -84,3 +84,12 @@ skip_covered = true
 
 [tool.ty.terminal]
 error-on-warning = true
+
+# Tests pass invalid data on purpose.
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+invalid-argument-type = "ignore"
+missing-argument = "ignore"
+unknown-argument = "ignore"

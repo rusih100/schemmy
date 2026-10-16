@@ -1,4 +1,4 @@
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, Literal
 
 import pytest
 
@@ -149,7 +149,7 @@ class TestNonStringKeys:
             a: int
 
         with pytest.raises(ValidationError) as exc:
-            S.validate({1: 2})  # ty: ignore[invalid-argument-type]
+            S.validate({1: 2})
 
         error = exc.value.exceptions[0]
         assert error.message == "Field name must be a string"
@@ -235,6 +235,19 @@ class TestMisc:
             S(x={"a": 1})
 
         assert exc.value.exceptions[0].message.startswith("Unsupported type")
+
+    def test_unsupported_type_name(self) -> None:
+        """
+        The unsupported type error names the annotation with its arguments.
+        """
+
+        class S(Schema):
+            x: Literal["a"]
+
+        with pytest.raises(ValidationError) as exc:
+            S(x="a")
+
+        assert exc.value.exceptions[0].message == "Unsupported type: Literal['a']"
 
     def test_fields_cached_per_class(self) -> None:
         """

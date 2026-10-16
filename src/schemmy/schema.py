@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, get_args, get_origin, get_type_hints
+from types import NoneType, UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Union,
+    dataclass_transform,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from schemmy.exceptions import FieldValidationError, ValidationError
 
@@ -17,10 +28,59 @@ type FieldsMapping = dict[FieldName, FieldValue]
 type TypeHintsMapping = dict[FieldName, Any]
 
 
+def _type_repr(annotation: Any) -> str:
+    """
+    Returns a readable name of an annotation for error messages.
+    Unions are written as X | Y.
+    Annotated metadata is omitted.
+    """
+
+    if annotation is NoneType:
+        return "None"
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin is Union or origin is UnionType:
+        return " | ".join(_type_repr(arg) for arg in args)
+
+    if origin is Annotated:
+        return _type_repr(args[0])
+
+    if origin is not None:
+        return f"{_type_repr(origin)}[{', '.join(_type_repr(arg) for arg in args)}]"
+
+    if isinstance(annotation, type):
+        return annotation.__name__
+
+    return repr(annotation).removeprefix("typing.")
+
+
+def _dump(value: Any) -> Any:
+    """
+    Converts schemas inside a value to dicts.
+    Lists and dicts are traversed recursively.
+    Other values are returned unchanged.
+    """
+
+    if isinstance(value, Schema):
+        return value.to_dict()
+
+    if isinstance(value, list):
+        return [_dump(item) for item in value]
+
+    if isinstance(value, dict):
+        return {key: _dump(item) for key, item in value.items()}
+
+    return value
+
+
+@dataclass_transform(kw_only_default=True)
 class Schema:
     """
     Base class for data schemas described with type annotations.
     Validates and normalizes input data on instantiation.
+    Type checkers derive the constructor signature from the field annotations.
     """
 
     _schemmy_fields: ClassVar[tuple[TypeHintsMapping, FieldsMapping]]
@@ -39,6 +99,27 @@ class Schema:
 
         if errors:
             raise ValidationError(f"{type(self).__name__}: validation failed", errors)
+
+    def __repr__(self) -> str:
+        type_hints, _ = type(self)._get_fields()
+        fields = ", ".join(f"{name}={getattr(self, name)!r}" for name in type_hints)
+        return f"{type(self).__name__}({fields})"
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not type(self):
+            return NotImplemented
+        type_hints, _ = type(self)._get_fields()
+        return all(getattr(self, name) == getattr(other, name) for name in type_hints)
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Returns field values as a dict in field declaration order.
+        Nested schemas are converted to dicts.
+        Lists and dicts are traversed recursively.
+        """
+
+        type_hints, _ = type(self)._get_fields()
+        return {name: _dump(getattr(self, name)) for name in type_hints}
 
     @classmethod
     def validate(cls, fields: FieldsMapping) -> Self:
@@ -190,22 +271,27 @@ class Schema:
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
         """
         Dispatches a value to the resolver for its annotation.
-        Supported annotations are Any, Annotated, list, Schema subclasses and plain classes.
+        Supported annotations are Any, Annotated, unions, list, Schema subclasses and plain classes.
         A value that fails validation is replaced with ellipsis.
 
         :returns: Normalized value, validation errors
         """
 
+        origin = get_origin(expected_type)
+
         if expected_type is Any:
             return cls._resolve_any_type(field, value, expected_type)
 
-        if get_origin(expected_type) is Annotated:
+        if origin is Annotated:
             return cls._resolve_validators(field, value, expected_type)
 
-        if get_origin(expected_type) is list:
+        if origin is Union or origin is UnionType:
+            return cls._resolve_union_type(field, value, expected_type)
+
+        if origin is list:
             return cls._resolve_list_type(field, value, expected_type)
 
-        if get_origin(expected_type) is not None or not isinstance(expected_type, type):
+        if origin is not None or not isinstance(expected_type, type):
             return cls._resolve_unsupported_type(field, value, expected_type)
 
         if issubclass(expected_type, Schema):
@@ -232,6 +318,37 @@ class Schema:
         return value, []
 
     @classmethod
+    def _resolve_union_type(
+        cls, field: FieldName, value: FieldValue, expected_type: Any
+    ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
+        """
+        Resolver for unions such as X | Y and Optional[X].
+        None members are skipped for a value other than None.
+        A single remaining member validates the value directly and reports its own errors.
+        Otherwise members are tried in declaration order and the first match wins.
+
+        :returns: Normalized value, validation errors
+        """
+
+        members = [member for member in get_args(expected_type) if value is None or member is not NoneType]
+
+        if len(members) == 1:
+            return cls._check_field_type(field, value, members[0])
+
+        for member in members:
+            validated_value, errors = cls._check_field_type(field, value, member)
+            if not errors:
+                return validated_value, []
+
+        return ..., [
+            FieldValidationError(
+                field=field,
+                message=f"Expected {_type_repr(expected_type)}, got {type(value).__name__}",
+                location=[field],
+            )
+        ]
+
+    @classmethod
     def _resolve_list_type(
         cls, field: FieldName, value: FieldValue, expected_type: Any
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
@@ -250,7 +367,7 @@ class Schema:
             return ..., [
                 FieldValidationError(
                     field=field,
-                    message=f"Expected {expected_type!r}, got {type(value).__name__}",
+                    message=f"Expected {_type_repr(expected_type)}, got {type(value).__name__}",
                     location=[field],
                 )
             ]
@@ -275,7 +392,7 @@ class Schema:
         cls, field: FieldName, value: FieldValue, expected_type: Any
     ) -> tuple[FieldValue | EllipsisType, list[FieldValidationError]]:
         """
-        Resolver for annotations without support, such as unions, dict and tuple.
+        Resolver for annotations without support, such as dict and tuple.
         Always produces a single error.
 
         :returns: Normalized value, validation errors
@@ -284,7 +401,7 @@ class Schema:
         return ..., [
             FieldValidationError(
                 field=field,
-                message=f"Unsupported type: {expected_type!r}",
+                message=f"Unsupported type: {_type_repr(expected_type)}",
                 location=[field],
             )
         ]

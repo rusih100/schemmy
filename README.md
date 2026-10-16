@@ -66,6 +66,7 @@ Errors come in a stable order: missing and unknown fields first, then value erro
 | `int`, `str`, `float`, `bool`, any class | `isinstance` check, no type coercion. `bool` is rejected for `int` fields |
 | `Any` | Value is accepted as is |
 | `list[T]` | Each item is checked against `T`; the item index is added to the error path |
+| `X \| Y`, `Optional[X]` | Members are tried in order, the first match wins. For `X \| None`, errors of `X` are reported as is |
 | `Schema` subclass | Accepts a schema instance or a `dict` |
 | `Annotated[T, *validators]` | `T` is checked first, then validators run in order |
 
@@ -77,9 +78,35 @@ A field with a default value is optional. If the field is not passed, the schema
 
 `ClassVar` annotations are not fields.
 
+## Working with instances
+
+```python
+order.to_dict()
+# {'id': 1, 'items': [{'sku': 'A1', 'qty': 2}]}
+
+order
+# Order(id=1, items=[Item(sku='A1', qty=2)])
+
+Order.validate(order.to_dict()) == order
+# True
+```
+
+`to_dict` converts nested schemas recursively and keeps field declaration order. Schemas compare by class and field values. Schemas are mutable and therefore unhashable.
+
+## Type checking
+
+Type checkers derive the constructor signature from the annotations, so wrong types, unknown and missing fields are reported before runtime:
+
+```python
+Item(sku=1, qty=2)  # error: expected str
+Item(sku="A1", qyt=2)  # error: unknown argument
+```
+
+The constructor is typed for already typed values. Use `Schema.validate` for raw data such as parsed JSON, where nested schemas arrive as dicts.
+
 ## Limitations
 
-`X | None` and other unions, `dict` and `tuple` are not supported yet. A field with such an annotation produces an "unsupported type" error.
+`dict`, `tuple`, `Literal` and other annotations not listed above are not supported yet. A field with such an annotation produces an "unsupported type" error.
 
 ## Development
 
