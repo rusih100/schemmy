@@ -1,11 +1,11 @@
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestStrType:
     """
-    Группа тестов на валидацию скалярного типа str
+    Validation of str fields.
     """
 
     @pytest.mark.parametrize(
@@ -16,13 +16,13 @@ class TestStrType:
             "asd",
             "8 (950) 288-56-23",
             "",
-            "  с пробелами  ",
+            "  with spaces  ",
             "ユニコード",  # unicode
         ],
     )
     def test_success(self, value: str) -> None:
         """
-        Успешные тесты на валидацию
+        Valid values pass.
         """
 
         class S(Schema):
@@ -35,20 +35,11 @@ class TestStrType:
 
     @pytest.mark.parametrize(
         "value",
-        [
-            None,
-            ...,
-            1234,
-            34.43,
-            [],
-            [123, 23],
-            (2, 3),
-            ["string", "fdf"]
-        ],
+        [None, ..., 1234, 34.43, [], [123, 23], (2, 3), ["string", "fdf"]],
     )
     def test_invalid_type(self, value: str) -> None:
         """
-        Тесты валидацию, при переданном некорректном типе
+        Values of a wrong type fail.
         """
 
         class S(Schema):
@@ -60,5 +51,5 @@ class TestStrType:
         error = exc.value.exceptions[0]
 
         assert len(exc.value.exceptions) == 1, "Check errors count"
-        assert "Ожидалось str" in error.message, "Check error message"
+        assert "Expected str" in error.message, "Check error message"
         assert error.location == ["field"], "Check error location"

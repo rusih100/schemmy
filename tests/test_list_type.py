@@ -1,12 +1,12 @@
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestListType:
     """
-    Группа тестов на валидацию списков: списки скаляров, списки схем, вложенные списки,
-    поведение Any, множественные ошибки и неверный корневой тип.
+    Validation of lists: lists of scalars, lists of schemas, nested lists,
+    list[Any], multiple errors and a wrong root type.
     """
 
     @pytest.mark.parametrize(
@@ -19,7 +19,7 @@ class TestListType:
     )
     def test_list_of_int_success(self, value: list[int]) -> None:
         """
-        Успешная валидация list[int].
+        list[int] passes.
         """
 
         class S(Schema):
@@ -34,12 +34,12 @@ class TestListType:
         [
             ["a", "b", "c"],
             [],
-            ["", "текст", "ユニコード"],
+            ["", "café", "ユニコード"],
         ],
     )
     def test_list_of_str_success(self, value: list[str]) -> None:
         """
-        Успешная валидация list[str].
+        list[str] passes.
         """
 
         class S(Schema):
@@ -51,8 +51,8 @@ class TestListType:
 
     def test_list_of_int_with_invalid_element(self) -> None:
         """
-        Ошибка, если один из элементов не int.
-        Ожидаем корректную вставку индекса элемента в location: ["field", <idx>].
+        An item of a wrong type fails.
+        The item index is inserted into the location: ["field", <idx>].
         """
 
         class S(Schema):
@@ -62,14 +62,14 @@ class TestListType:
             S(field=[1, "bad", 3])
 
         errors = exc.value.exceptions
-        assert len(errors) == 1, "Должна быть одна ошибка"
-        assert "Ожидалось int" in errors[0].message
+        assert len(errors) == 1, "Expected a single error"
+        assert "Expected int" in errors[0].message
         assert errors[0].location == ["field", 1]
 
     def test_list_of_str_multiple_invalids(self) -> None:
         """
-        Несколько ошибок в разных индексах в list[str].
-        Проверяем, что обе ошибки имеют корректные локации.
+        Errors at several indexes of list[str] are all reported.
+        Both errors have correct locations.
         """
 
         class S(Schema):
@@ -82,13 +82,13 @@ class TestListType:
 
         assert len(errors) == 2
         assert errors[0].location == ["field", 1]
-        assert "Ожидалось str" in errors[0].message
+        assert "Expected str" in errors[0].message
         assert errors[1].location == ["field", 2]
-        assert "Ожидалось str" in errors[1].message
+        assert "Expected str" in errors[1].message
 
     def test_invalid_list_root_type(self) -> None:
         """
-        Ошибка, если пришёл не список, когда ожидается list[T].
+        A non-list value for list[T] fails.
         """
 
         class S(Schema):
@@ -98,12 +98,12 @@ class TestListType:
             S(field="not-a-list")
 
         error = exc.value.exceptions[0]
-        assert "Ожидался список" in error.message
+        assert "Expected list[" in error.message
         assert error.location == ["field"]
 
     def test_list_of_schema_success(self) -> None:
         """
-        Успешная валидация списка вложенных схем.
+        A list of nested schemas passes.
         """
 
         class Item(Schema):
@@ -121,8 +121,8 @@ class TestListType:
 
     def test_list_of_schema_with_child_errors(self) -> None:
         """
-        Ошибка валидации во вложенной схеме внутри списка.
-        Дочерние ошибки должны «разворачиваться» с добавлением индекса: ["items", idx, <child_field>].
+        A nested schema inside a list fails.
+        Nested errors are unwrapped with the index: ["items", idx, <child_field>].
         """
 
         class Item(Schema):
@@ -138,13 +138,13 @@ class TestListType:
         errors = exc.value.exceptions
         assert len(errors) == 2
         assert errors[0].location == ["items", 0, "qty"]
-        assert "Ожидалось int" in errors[0].message
+        assert "Expected int" in errors[0].message
         assert errors[1].location == ["items", 1, "sku"]
-        assert "Ожидалось str" in errors[1].message
+        assert "Expected str" in errors[1].message
 
     def test_nested_lists_success(self) -> None:
         """
-        Успешная валидация вложенных списков: list[list[int]].
+        Nested lists list[list[int]] pass.
         """
 
         class S(Schema):
@@ -157,8 +157,8 @@ class TestListType:
 
     def test_nested_lists_with_errors(self) -> None:
         """
-        Ошибки внутри вложенных списков: list[list[int]].
-        Должны корректно проставляться обе координаты: ["field", i, j].
+        Errors inside nested lists list[list[int]].
+        Both indexes are set: ["field", i, j].
         """
 
         class S(Schema):
@@ -170,11 +170,11 @@ class TestListType:
         errors = exc.value.exceptions
         assert len(errors) == 3
         assert errors[0].location == ["field", 0, 1]
-        assert "Ожидалось int" in errors[0].message
+        assert "Expected int" in errors[0].message
         assert errors[1].location == ["field", 1, 0]
-        assert "Ожидалось int" in errors[1].message
+        assert "Expected int" in errors[1].message
         assert errors[2].location == ["field", 1, 1]
-        assert "Ожидалось int" in errors[2].message
+        assert "Expected int" in errors[2].message
 
     @pytest.mark.parametrize(
         "value",
@@ -185,7 +185,7 @@ class TestListType:
     )
     def test_list_of_any(self, value: list) -> None:
         """
-        Для list[Any] элементы не типизируются и возвращаются как есть.
+        Items of list[Any] are returned unchanged.
         """
 
         from typing import Any

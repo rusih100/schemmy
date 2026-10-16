@@ -1,11 +1,11 @@
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestBoolType:
     """
-    Группа тестов на валидацию скалярного типа bool
+    Validation of bool fields.
     """
 
     @pytest.mark.parametrize(
@@ -17,7 +17,7 @@ class TestBoolType:
     )
     def test_success(self, value: bool) -> None:
         """
-        Успешные тесты на валидацию
+        Valid values pass.
         """
 
         class S(Schema):
@@ -49,7 +49,7 @@ class TestBoolType:
     )
     def test_invalid_type(self, value: bool) -> None:
         """
-        Тесты валидацию, при переданном некорректном типе
+        Values of a wrong type fail.
         """
 
         class S(Schema):
@@ -61,5 +61,5 @@ class TestBoolType:
         error = exc.value.exceptions[0]
 
         assert len(exc.value.exceptions) == 1, "Check errors count"
-        assert "Ожидалось bool" in error.message, "Check error message"
+        assert "Expected bool" in error.message, "Check error message"
         assert error.location == ["field"], "Check error location"

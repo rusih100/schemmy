@@ -4,71 +4,71 @@ from typing import Annotated, Any
 
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 def v_positive_int(x: int) -> int:
     """
-    Пропускаем только положительные int
+    Only positive ints pass.
     """
     if x <= 0:
-        raise ValueError("должно быть > 0")
+        raise ValueError("must be > 0")
     return x
 
 
 def v_strip(x: str) -> str:
     """
-    Тримим строку
+    Strips the string.
     """
     return x.strip()
 
 
 def v_lower(x: str) -> str:
     """
-    Нижний регистр строки
+    Lowercases the string.
     """
     return x.lower()
 
 
 def v_non_empty_list(x: list[Any]) -> list[Any]:
     """
-    Список не должен быть пустым
+    The list must not be empty.
     """
     if not x:
-        raise ValueError("список пуст")
+        raise ValueError("list is empty")
     return x
 
 
 def v_max_len_3(x: list[Any]) -> list[Any]:
     """
-    Ограничение длины списка ≤ 3
+    List length is limited to 3.
     """
     if len(x) > 3:
-        raise ValueError("слишком длинный список")
+        raise ValueError("list is too long")
     return x
 
 
 def v_even(x: int) -> int:
     """
-    Разрешаем только чётные числа
+    Only even numbers pass.
     """
     if x % 2 != 0:
-        raise ValueError("нечётное значение")
+        raise ValueError("odd value")
     return x
 
 
 class TestAnnotatedScalar:
     """
-    Тесты валидаторов для скалярных полей через Annotated[T, validator...].
-    Поведение валидаторов и порядок вызова описаны в _resolve_validators:
-    - сначала проверяется базовый тип,
-    - затем по очереди вызываются валидаторы, при исключении формируется FieldValidationError
-      с сообщением 'Ошибка валидатора {name}: {exc}' и location=[field]
+    Validators on scalar fields via Annotated[T, *validators].
+    Validator behavior and call order are defined in _resolve_validators.
+    The base type is checked first.
+    Validators then run in order, an exception produces a FieldValidationError
+    with the message 'Validator {name} failed: {exc}' and location=[field].
     """
 
     def test_scalar_transform_success(self) -> None:
         """
-        Успешная валидация и трансформация значения валидатором.
+        A validator transforms a valid value.
         """
 
         class S(Schema):
@@ -79,7 +79,7 @@ class TestAnnotatedScalar:
 
     def test_scalar_validator_error(self) -> None:
         """
-        Падение валидатора: сообщение и локация должны соответствовать контракту.
+        A failing validator produces the documented message and location.
         """
 
         class S(Schema):
@@ -89,12 +89,12 @@ class TestAnnotatedScalar:
             S(field=0)
 
         err = exc.value.exceptions[0]
-        assert "Ошибка валидатора v_positive_int: должно быть > 0" in err.message
+        assert "Validator v_positive_int failed: must be > 0" in err.message
         assert err.location == ["field"]
 
     def test_scalar_type_error_before_validators(self) -> None:
         """
-        Если базовый тип не совпал — валидаторы не вызываются (ошибка типа).
+        Validators are not called when the base type does not match.
         """
 
         class S(Schema):
@@ -104,21 +104,21 @@ class TestAnnotatedScalar:
             S(field="123")
 
         err = exc.value.exceptions[0]
-        assert "Ожидалось int" in err.message
+        assert "Expected int" in err.message
         assert err.location == ["field"]
 
 
 class TestAnnotatedLists:
     """
-    Валидация Annotated для списков:
-    - валидатор на уровне списка: Annotated[list[T], validator...]
-    - валидатор на уровне элемента: list[Annotated[T, validator...]]
-    Вставка индекса элемента делается в _resolve_list_type при прокидывании ошибок дочерних значений.:contentReference[oaicite:2]{index=2}
+    Annotated validation of lists.
+    A list-level validator is declared as Annotated[list[T], *validators].
+    An item-level validator is declared as list[Annotated[T, *validators]].
+    _resolve_list_type adds the item index to error locations.
     """
 
     def test_list_level_validators_success(self) -> None:
         """
-        Валидаторы применяются к целому списку, затем элементы валидируются по базовому типу.
+        List-level validators receive the whole list after the items are checked.
         """
 
         class S(Schema):
@@ -129,7 +129,7 @@ class TestAnnotatedLists:
 
     def test_list_level_validator_error_empty(self) -> None:
         """
-        Ошибка валидатора уровня списка (пустой список запрещён).
+        A list-level validator rejects an empty list.
         """
 
         class S(Schema):
@@ -139,12 +139,12 @@ class TestAnnotatedLists:
             S(field=[])
 
         err = exc.value.exceptions[0]
-        assert "Ошибка валидатора v_non_empty_list: список пуст" in err.message
+        assert "Validator v_non_empty_list failed: list is empty" in err.message
         assert err.location == ["field"]
 
     def test_list_item_validators_success(self) -> None:
         """
-        Валидатор применяется к каждому элементу через Annotated[int, ...] внутри list.
+        An item-level validator runs for each item.
         """
 
         class S(Schema):
@@ -155,7 +155,7 @@ class TestAnnotatedLists:
 
     def test_list_item_validator_error_indexed(self) -> None:
         """
-        Ошибки валидаторов элементов должны иметь location с индексом элемента: ['field', idx].
+        Item validator errors have the item index in the location: ['field', idx].
         """
 
         class S(Schema):
@@ -168,14 +168,14 @@ class TestAnnotatedLists:
         assert len(errors) == 2
 
         assert errors[0].location == ["field", 1]
-        assert "Ошибка валидатора v_even: нечётное значение" in errors[0].message
+        assert "Validator v_even failed: odd value" in errors[0].message
 
         assert errors[1].location == ["field", 2]
-        assert "Ошибка валидатора v_positive_int: должно быть > 0" in errors[1].message
+        assert "Validator v_positive_int failed: must be > 0" in errors[1].message
 
     def test_list_root_type_error(self) -> None:
         """
-        Если пришёл не list при Annotated[list[T], ...] — сообщение об ожидании списка.
+        A non-list value for Annotated[list[T], ...] produces a list type error.
         """
 
         class S(Schema):
@@ -185,5 +185,5 @@ class TestAnnotatedLists:
             S(field="not-a-list")
 
         err = exc.value.exceptions[0]
-        assert "Ожидался список" in err.message
+        assert "Expected list[" in err.message
         assert err.location == ["field"]

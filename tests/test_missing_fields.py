@@ -2,12 +2,12 @@ from typing import Any
 
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestMissingFields:
     """
-    Группа тестов на проверку непроставленных полей
+    Missing fields.
     """
 
     @pytest.mark.parametrize(
@@ -33,4 +33,4 @@ class TestMissingFields:
         assert len(exc.value.exceptions) == expected_error_count, "Check errors count"
 
         for error in exc.value.exceptions:
-            assert "Обязательное поле не передано" in error.message, "Check error message"
+            assert "Field required" in error.message, "Check error message"

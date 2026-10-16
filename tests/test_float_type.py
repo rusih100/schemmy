@@ -1,11 +1,11 @@
 import pytest
 
-from sanitizer import Schema, ValidationError
+from schemmy import Schema, ValidationError
 
 
 class TestFloatType:
     """
-    Группа тестов на валидацию скалярного типа float
+    Validation of float fields.
     """
 
     @pytest.mark.parametrize(
@@ -19,7 +19,7 @@ class TestFloatType:
     )
     def test_success(self, value: float) -> None:
         """
-        Успешные тесты на валидацию
+        Valid values pass.
         """
 
         class S(Schema):
@@ -47,7 +47,7 @@ class TestFloatType:
     )
     def test_invalid_type(self, value: int) -> None:
         """
-        Тесты валидацию, при переданном некорректном типе
+        Values of a wrong type fail.
         """
 
         class S(Schema):
@@ -59,5 +59,5 @@ class TestFloatType:
         error = exc.value.exceptions[0]
 
         assert len(exc.value.exceptions) == 1, "Check errors count"
-        assert "Ожидалось float" in error.message, "Check error message"
+        assert "Expected float" in error.message, "Check error message"
         assert error.location == ["field"], "Check error location"
