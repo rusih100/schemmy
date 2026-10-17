@@ -1,6 +1,6 @@
 [project]
 name = "schemmy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Validate data with plain type annotations. No dependencies."
 readme = "README.md"
 license = "MIT"
