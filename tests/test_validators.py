@@ -57,6 +57,23 @@ def v_even(x: int) -> int:
     return x
 
 
+def v_non_empty_str(x: str) -> str:
+    """
+    The string must not be empty.
+    """
+    if not x:
+        raise ValueError("string is empty")
+    return x
+
+
+def v_first_char(x: str) -> str:
+    """
+    Returns the first character.
+    Raises IndexError for an empty string.
+    """
+    return x[0]
+
+
 class TestAnnotatedScalar:
     """
     Validators on scalar fields via Annotated[T, *validators].
@@ -187,3 +204,24 @@ class TestAnnotatedLists:
         err = exc.value.exceptions[0]
         assert "Expected list[" in err.message
         assert err.location == ["field"]
+
+
+class TestValidatorChain:
+    """
+    Order of validators in a chain.
+    """
+
+    def test_first_failure_stops_chain(self) -> None:
+        """
+        Validators after the first failing one are not called, so they produce no errors.
+        """
+
+        class S(Schema):
+            field: Annotated[str, v_non_empty_str, v_first_char]
+
+        with pytest.raises(ValidationError) as exc:
+            S(field="")
+
+        assert [error.message for error in exc.value.exceptions] == [
+            "Validator v_non_empty_str failed: string is empty"
+        ]

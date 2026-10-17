@@ -1,3 +1,4 @@
+import sys
 from typing import Annotated, ClassVar
 
 import pytest
@@ -172,6 +173,60 @@ class TestNonStringKeys:
         assert exc.value.exceptions[0].location == ["inner", "1"]
 
 
+class TestNonDictInput:
+    """
+    Input other than a dict.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "type_name"),
+        [(None, "NoneType"), ([("a", 1)], "list"), ("a", "str"), (1, "int")],
+    )
+    def test_validate_non_dict(self, value: object, type_name: str) -> None:
+        """
+        Input other than a dict fails with a single error and an empty location.
+        """
+
+        class S(Schema):
+            a: int
+
+        with pytest.raises(ValidationError) as exc:
+            S.validate(value)
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [
+            ([], f"Expected dict, got {type_name}")
+        ]
+
+
+class TestSelfField:
+    """
+    Field named self.
+    """
+
+    def test_unknown_self_field(self) -> None:
+        """
+        An undeclared self key in the input is reported as an unknown field.
+        """
+
+        class S(Schema):
+            a: int
+
+        with pytest.raises(ValidationError) as exc:
+            S.validate({"a": 1, "self": 2})
+
+        assert [(error.location, error.message) for error in exc.value.exceptions] == [(["self"], "Unknown field")]
+
+    def test_declared_self_field(self) -> None:
+        """
+        A declared self field is validated like any other field.
+        """
+
+        class S(Schema):
+            self: int
+
+        assert S.validate({"self": 1}).self == 1
+
+
 class TestMisc:
     """
     Other cases.
@@ -265,3 +320,64 @@ class TestMisc:
         assert Child(a=1, b=2).b == 2
         with pytest.raises(ValidationError):
             Base(a=1, b=2)
+
+
+class TestMixins:
+    """
+    Bases that are not schemas.
+    """
+
+    def test_mixin_field_with_default(self) -> None:
+        """
+        A field declared in a mixin keeps its default value.
+        """
+
+        class Timestamped:
+            created: int = 0
+
+        class S(Timestamped, Schema):
+            name: str
+
+        assert S(name="a").to_dict() == {"created": 0, "name": "a"}
+
+
+class Node(Schema):
+    child: "Node | None" = None
+
+
+def nested(depth: int) -> dict[str, object]:
+    """
+    Returns Node input with the given number of nested children.
+    """
+
+    data: dict[str, object] = {"child": None}
+    for _ in range(depth):
+        data = {"child": data}
+    return data
+
+
+class TestNestingDepth:
+    """
+    Recursive schemas with deep input.
+    """
+
+    def test_too_deep_input(self) -> None:
+        """
+        Input deeper than the recursion limit allows produces a single depth error.
+        """
+
+        with pytest.raises(ValidationError) as exc:
+            Node.validate(nested(sys.getrecursionlimit()))
+
+        (error,) = exc.value.exceptions
+        assert error.message == "Maximum nesting depth exceeded"
+        assert set(error.location) == {"child"}
+
+    def test_deep_input_within_limit(self) -> None:
+        """
+        Input well within the recursion limit is validated.
+        """
+
+        data = nested(20)
+
+        assert Node.validate(data).to_dict() == data

@@ -1,3 +1,4 @@
+import typing
 from typing import Annotated, Literal
 
 import pytest
@@ -317,3 +318,43 @@ class TestTuple:
         assert s.items == (Item(sku="A1"), Item(sku="B2"))
         assert s.to_dict() == {"items": ({"sku": "A1"}, {"sku": "B2"})}
         assert S.validate(s.to_dict()) == s
+
+
+class TestBareTypingAliases:
+    """
+    typing.List, typing.Dict and typing.Tuple without arguments.
+    """
+
+    def test_items_accepted_as_any(self) -> None:
+        """
+        Items of bare aliases are accepted as Any.
+        """
+
+        class S(Schema):
+            items: typing.List  # noqa: UP006
+            mapping: typing.Dict  # noqa: UP006
+            pair: typing.Tuple  # noqa: UP006
+
+        s = S.validate({"items": [1, "a"], "mapping": {1: "a"}, "pair": [1, "a"]})
+
+        assert (s.items, s.mapping, s.pair) == ([1, "a"], {1: "a"}, (1, "a"))
+
+    @pytest.mark.parametrize(
+        ("annotation", "message"),
+        [
+            (typing.List, "Expected list[Any], got str"),  # noqa: UP006
+            (typing.Dict, "Expected dict[Any, Any], got str"),  # noqa: UP006
+            (typing.Tuple, "Expected tuple[Any, ...], got str"),  # noqa: UP006
+        ],
+    )
+    def test_container_type_checked(self, annotation: object, message: str) -> None:
+        """
+        A bare alias still requires its container type.
+        """
+
+        S = type("S", (Schema,), {"__annotations__": {"value": annotation}})
+
+        with pytest.raises(ValidationError) as exc:
+            S.validate({"value": "x"})
+
+        assert exc.value.exceptions[0].message == message
